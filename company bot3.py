@@ -948,18 +948,23 @@ def create_web_app() -> Optional["Flask"]:
     """
 
     @app.get("/")
-    @requires_auth  # <--- ДОБАВИЛИ ЭТО
+    @requires_auth
     def index():
         users = _get_users_for_web_sync()
         return render_template_string(INDEX_TEMPLATE, users=users, fmt=_format_dt, port=WEBUI_PORT)
 
     @app.get("/user/<int:telegram_id>")
-    @requires_auth  # <--- ДОБАВИЛИ ЭТО
+    @requires_auth
     def user_detail(telegram_id: int):
-        ...
+        user = _get_user_sync(telegram_id)
+        if not user:
+            return "User not found", 404
+        _update_user_sync(telegram_id, unread_count=0)
+        messages = _get_messages_sync(telegram_id, limit=200)
+        return render_template_string(USER_TEMPLATE, user=user, messages=messages, fmt=_format_dt)
 
     @app.post("/send")
-    @requires_auth  # <--- ДОБАВИЛИ ЭТО
+    @requires_auth
     def send():
         telegram_id = int(request.form.get("telegram_id", "0") or 0)
         text = (request.form.get("text") or "").strip()
