@@ -30,7 +30,7 @@ from aiogram.types import (
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 
 try:
-    from flask import Flask, redirect, render_template_string, request, url_for
+    from flask import Flask, redirect, render_template_string, request, url_for, Response
 
     FLASK_AVAILABLE = True
 except Exception:
@@ -41,6 +41,9 @@ load_dotenv()
 # Конфигурация
 # =========================
 BOT_TOKEN = os.getenv("COMPANY_BOT_TOKEN", "").strip()
+
+WEBUI_USERNAME = os.getenv("WEBUI_USERNAME", "admin").strip()
+WEBUI_PASSWORD = os.getenv("WEBUI_PASSWORD", "12345").strip()
 
 CHANNEL_URL = os.getenv("COMPANY_CHANNEL_URL", "https://t.me/your_channel").strip()
 CHANNEL_POST_URL = os.getenv("COMPANY_CHANNEL_POST_URL", CHANNEL_URL).strip()
@@ -732,6 +735,28 @@ def create_web_app() -> Optional["Flask"]:
         return None
 
     app = Flask(__name__)
+    from functools import wraps
+
+    def check_auth(username, password):
+        # Сравниваем то, что ввел юзер, с тем, что в .env
+        return username == WEBUI_USERNAME and password == WEBUI_PASSWORD
+
+    def authenticate():
+        # Отправляем браузеру команду показать окно ввода пароля
+        return Response(
+            'Вход только для администратора\n', 401,
+            {'WWW-Authenticate': 'Basic realm="Admin Panel"'})
+
+    def requires_auth(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            auth = request.authorization
+            if not auth or not check_auth(auth.username, auth.password):
+                return authenticate()
+            return f(*args, **kwargs)
+
+        return decorated
+
     app.config["JSON_AS_ASCII"] = False
 
     INDEX_TEMPLATE = """
@@ -923,20 +948,18 @@ def create_web_app() -> Optional["Flask"]:
     """
 
     @app.get("/")
+    @requires_auth  # <--- ДОБАВИЛИ ЭТО
     def index():
         users = _get_users_for_web_sync()
         return render_template_string(INDEX_TEMPLATE, users=users, fmt=_format_dt, port=WEBUI_PORT)
 
     @app.get("/user/<int:telegram_id>")
+    @requires_auth  # <--- ДОБАВИЛИ ЭТО
     def user_detail(telegram_id: int):
-        user = _get_user_sync(telegram_id)
-        if not user:
-            return "User not found", 404
-        _update_user_sync(telegram_id, unread_count=0)
-        messages = _get_messages_sync(telegram_id, limit=200)
-        return render_template_string(USER_TEMPLATE, user=user, messages=messages, fmt=_format_dt)
+        ...
 
     @app.post("/send")
+    @requires_auth  # <--- ДОБАВИЛИ ЭТО
     def send():
         telegram_id = int(request.form.get("telegram_id", "0") or 0)
         text = (request.form.get("text") or "").strip()
